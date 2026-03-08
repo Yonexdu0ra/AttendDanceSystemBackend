@@ -1,0 +1,290 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
+// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// Role để phân quyền người dùng
+enum Role {
+  EMPLOYEE
+  MANAGER // quản lý chấm công, duyệt đơn xin nghỉ, OT, xem báo cáo phòng ban
+  ADMIN // quản lý tài khoản, quyền hạ, cấu hình hệ thống, xuất báo cáo
+  SUPER_ADMIN 
+}
+
+// StatusType để quản lý trạng thái tham gia công việc của người dùng (trạng thái đang chờ duyệt, đã được duyệt, bị từ chối hoặc đã hủy)
+enum StatusType {
+  PENDING
+  APPROVED
+  REJECTED
+  CANCELED
+}
+
+enum LeaveType {
+  SICK
+  VACATION
+  PERSONAL
+  OTHER
+}
+
+enum NotificationType {
+  SYSTEM      // hệ thống
+  OVERTIME    // liên quan OT
+  LEAVE       // nghỉ phép
+  APPROVAL    // duyệt
+}
+
+// HolidayType để phân loại ngày nghỉ lễ
+enum HolidayType {
+  // nghỉ lễ quốc gia - có lương
+  NATIONAL
+  // nghỉ lễ tôn giáo - có lương
+  RELIGIOUS
+  // nghỉ lễ văn hóa - có lương
+  CULTURAL
+  // nghỉ lễ công ty - có lương
+  COMPANY
+  // nghỉ lễ không có lương
+  OTHER
+}
+
+model User {
+  id               String    @id @default(uuid())
+  email            String    @unique @db.VarChar(255)
+  phone            String?   @unique @db.VarChar(20)
+  code             String?   @unique @db.VarChar(20)
+  password         String?
+  // Thêm trường biometricEnabled để lưu trạng thái đăng nhập bằng sinh trắc học
+  biometricEnabled Boolean   @default(false) @map("biometric_enabled")
+  profile          Profile?
+  role             Role      @default(EMPLOYEE)
+  // sort delete
+  deletedAt        DateTime? @map("deleted_at")
+
+  // time stamps
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+  sessions  Session[]
+  devices   UserDevice[]
+
+  jobManagers              JobManager[]
+  userJoinedJobs           UserJoinedJob[]
+  leaveRequests            LeaveRequest[]
+  leaveRequestsApproved    LeaveRequest[]    @relation("LeaveRequestApprover")
+  overtimeRequests         OvertimeRequest[]
+  overtimeRequestsApproved OvertimeRequest[] @relation("OvertimeRequestApprover")
+}
+
+model Profile {
+  id       String  @id @default(uuid())
+  userId   String  @unique @map("user_id")
+  fullName String  @map("full_name") @db.VarChar(255)
+  address  String
+  bio      String?
+  user     User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // time stamps
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+}
+
+// Lưu thông tin token đăng nhập của người dùng, có thể dùng để quản lý phiên đăng nhập và phát hiện các hoạt động đáng ngờ
+model Session {
+  id        String   @id @default(uuid())
+  userId    String   @map("user_id")
+  token     String   @unique
+  expiresAt DateTime @map("expires_at")
+
+  ipAddress String @map("ip_address") @db.VarChar(45) // Lưu địa chỉ IP của phiên đăng nhập, có thể dùng để phát hiện các hoạt động đáng ngờ
+
+  // time stamps
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+// thông tin thiết bị của người dùng khi đăng nhập
+model UserDevice {
+  id         String   @id @default(uuid())
+  userId     String   @map("user_id")
+  deviceId   String   @map("device_id") @db.VarChar(255)
+  // trường platform để lưu loại thiết bị (ví dụ: "iOS", "Android", "Web")
+  platform   String   @map("device_type") @db.VarChar(50)
+  deviceName String   @default("Unknown Device") @map("device_name") @db.VarChar(255)
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  fcmToken   String?  @map("fcm_token") // Lưu token FCM để gửi thông báo đẩy đến thiết bị, có thể null nếu người dùng chưa đăng nhập trên thiết bị đó hoặc đã đăng xuất
+  // Lưu địa chỉ IP của thiết bị khi đăng nhập, có thể dùng để phát hiện các hoạt động đáng ngờ
+  ipAddress  String   @map("ip_address") @db.VarChar(45)
+  // time stamps
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  @@index([userId, deviceId], name: "idx_user_device")
+}
+
+// bảng để lưu lịch sử các hành động quan trọng của người dùng, có thể dùng để audit và truy vết
+model AuditLog {
+  id String @id @default(uuid())
+
+  userId     String? // ai thao tác (null nếu system)
+  action     String // hành động: CREATE_USER, DELETE_LEAVE, LOGIN_FAIL
+  resource   String // đối tượng: User, LeaveRequest, Holiday
+  resourceId String? // id bản ghi bị tác động
+
+  oldValue Json? // dữ liệu trước khi thay đổi
+  newValue Json? // dữ liệu sau khi thay đổi
+
+  ipAddress String? // IP người thao tác
+  userAgent String? // trình duyệt / app
+
+  status    String // SUCCESS / FAIL
+  createdAt DateTime @default(now())
+}
+
+model Holiday {
+  id          String      @id @default(uuid())
+  name        String      @db.VarChar(255)
+  date        DateTime
+  // ngày nghỉ lễ có phải là ngày nghỉ có lương hay không
+  isPaid      Boolean     @default(false) @map("is_paid")
+  type        HolidayType @default(OTHER) @map("holiday_type")
+  description String?     @db.Text
+  createdAt   DateTime    @default(now()) @map("created_at")
+  updatedAt   DateTime    @updatedAt @map("updated_at")
+}
+
+// bảng trung gian để quản lý mối quan hệ giữa người dùng và các công việc mà họ quản lý 
+// User N -  N Job
+model JobManager {
+  id     String @id @default(uuid())
+  userId String @map("user_id")
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  job       Job?     @relation(fields: [jobId], references: [id], onDelete: Cascade, name: "JobManagers")
+  jobId     String?
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+}
+
+// bảng trung gian để quản lý mối quan hệ giữa người dùng và các công việc mà họ tham gia
+// User N - N Job
+model UserJoinedJob {
+  id        String     @id @default(uuid())
+  userId    String     @map("user_id")
+  jobId     String     @map("job_id")
+  // trang thái giam gia công việc của người dùng 
+  status    StatusType @default(PENDING) @map("status")
+  createdAt DateTime   @default(now()) @map("created_at")
+  updatedAt DateTime   @updatedAt @map("updated_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  job  Job  @relation(fields: [jobId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, jobId], name: "idx_user_job")
+}
+
+model Job {
+  id          String  @id @default(uuid())
+  title       String  @db.VarChar(255)
+  description String? @db.Text
+
+  address             String?  @db.VarChar(255)
+  workStartTime       DateTime @map("work_start_time") @db.Time()
+  // thời gian chấm có thể chấm công sớm 
+  earlyCheckInMinutes Int      @default(15) @map("early_check_in_minutes")
+  // thời gian chấm công muộn có thể cho phép chấm công khi đi muộn
+  lateCheckInMinutes  Int      @default(15) @map("late_check_in_minutes")
+
+  workEndTime          DateTime @map("work_end_time") @db.Time()
+  // tương tự với check-in, có thể cho phép check-out sớm hoặc muộn so với thời gian kết thúc công việc
+  earlyCheckOutMinutes Int      @default(15) @map("early_check_out_minutes")
+  lateCheckOutMinutes  Int      @default(15) @map("late_check_out_minutes")
+
+  // trường để lưu tọa độ địa lý của địa điểm làm việc, có thể dùng để tính toán khoảng cách giữa người dùng và địa điểm làm việc khi check-in
+  latitude  Float
+  longitude Float
+  radius    Float @default(50)
+
+  // time stamps
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  manager          JobManager[]      @relation("JobManagers")
+  userJoinedJobs   UserJoinedJob[]
+  leaveRequests    LeaveRequest[]
+  overtimeRequests OvertimeRequest[]
+}
+
+model LeaveRequest {
+  id        String     @id @default(uuid())
+  userId    String     @map("user_id")
+  jobId     String?    @map("job_id")
+  startDate DateTime   @map("start_date")
+  endDate   DateTime   @map("end_date")
+  leaveType LeaveType  @default(OTHER) @map("leave_type")
+  reason    String?    @db.Text
+  status    StatusType @default(PENDING) @map("status")
+  reply     String?    @db.Text // phản hồi từ người duyệt đơn, có thể là lý do từ chối hoặc ghi chú khi duyệt đơn
+
+  // lưu thông tin về người duyệt đơn nghỉ phép hoăc từ chối, có thể là manager của công việc hoặc admin
+  approvedBy String?   @map("approver_id")
+  approverAt DateTime? @map("approver_at")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+  approver  User?    @relation(fields: [approvedBy], references: [id], onDelete: SetNull, name: "LeaveRequestApprover")
+  user      User?    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  job       Job?     @relation(fields: [jobId], references: [id], onDelete: Cascade)
+}
+
+model OvertimeRequest {
+  id         String     @id @default(uuid())
+  userId     String     @map("user_id")
+  jobId      String?    @map("job_id")
+  date       DateTime   @map("date") // ngày OT
+  startTime  DateTime   @map("start_time") // bắt đầu
+  endTime    DateTime   @map("end_time") // kết thúc
+  minutes    Int        @map("minutes") // tổng phút OT
+  reason     String?    @db.Text
+  status     StatusType @default(PENDING) @map("status")
+  reply      String?    @db.Text // phản hồi từ người duyệt đơn, có thể là lý do từ chối hoặc ghi chú khi duyệt đơn
+  approvedBy String?    @map("approver_id")
+  approverAt DateTime?  @map("approver_at")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+  approver  User?    @relation(fields: [approvedBy], references: [id], onDelete: Cascade, name: "OvertimeRequestApprover")
+  user      User?    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  job       Job?     @relation(fields: [jobId], references: [id], onDelete: Cascade)
+}
+
+model Notification {
+  id String @id @default(uuid())
+
+  userId  String @map("user_id") // người nhận
+  title   String @db.VarChar(255)
+  content String @db.Text
+
+  type   NotificationType // loại thông báo
+  isRead Boolean          @default(false) @map("is_read")
+
+  // dùng để redirect (VD: bấm vào mở overtime_request id=123)
+  refType String? @map("ref_type") // "OVERTIME", "LEAVE", "JOB"
+  refId   String? @map("ref_id")
+
+  createdAt DateTime  @default(now()) @map("created_at")
+  readAt    DateTime? @map("read_at")
+
+  @@index([userId, isRead])
+  @@index([type])
+  @@map("notifications")
+}
