@@ -18,13 +18,14 @@ function socketHandler(io) {
                     socket.join(`job_${job._id.toString()}`);
                 }
             }
+
+            socket.on("disconnect", () => {
+                socket.leave(socket.user._id.toString());
+            });
         } catch (error) {
+            console.error('[Socket] connection setup error:', error.message);
             return
         }
-    })
-
-    io.on("disconnect", (socket) => {
-        io.leave(socket.user._id.toString());
     })
 
     io.on("error", (err) => {
@@ -32,17 +33,34 @@ function socketHandler(io) {
     });
 
 
-    redisSub.pSubscribe("attendance:*", (message, channel) => {
-        
-     })
+    // ─── Redis pub/sub → Socket.io ────────────────────────────────────────────
+    // Khi một service publish lên Redis, handler dưới sẽ forward tin nhắn
+    // tới đúng room/user qua Socket.io.
 
-    redisSub.pSubscribe("notification:*", (message, channel) => { })
+    /**
+     * Đăng ký nhận một channel pattern từ Redis và forward payload tới room
+     * Socket.io tương ứng.
+     *
+     * @param {string}   pattern   - Redis channel pattern, ví dụ: "notification:*"
+     * @param {string}   event     - Tên sự kiện Socket.io sẽ emit
+     * @param {function} getRoom   - Nhận channel name, trả về tên room Socket.io
+     */
+    const _subscribe = (pattern, event, getRoom) => {
+        redisSub.pSubscribe(pattern, (message, channel) => {
+            try {
+                const payload = JSON.parse(message);
+                io.to(getRoom(channel)).emit(event, payload);
+            } catch (err) {
+                console.error(`[Socket] ${pattern} pub/sub error:`, err.message);
+            }
+        });
+    };
 
-    redisSub.pSubscribe("user:*", (message, channel) => { })
-
-    redisSub.pSubscribe("leave:*", (message, channel) => { })
-
-    redisSub.pSubscribe("overtime:*", (message, channel) => { })
+    _subscribe("notification:*", "notification", (ch) => ch.split(':')[1]);
+    _subscribe("attendance:*",   "attendance",   (ch) => `job_${ch.split(':')[1]}`);
+    _subscribe("user:*",         "user",         (ch) => ch.split(':')[1]);
+    _subscribe("leave:*",        "leave",        (ch) => ch.split(':')[1]);
+    _subscribe("overtime:*",     "overtime",     (ch) => ch.split(':')[1]);
 }
 
 export default socketHandler;
