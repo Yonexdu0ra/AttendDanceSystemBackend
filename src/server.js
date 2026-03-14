@@ -1,14 +1,26 @@
 import express from "express";
 import cors from "cors";
-import {   createServer   } from "http";
+import { createServer } from "http";
 import swaggerUi from "swagger-ui-express";
 
-import {   swaggerSpec   } from "./configs/swagger.js";
+import { swaggerSpec } from "./configs/swagger.js";
 import apiRoutes from "./routes/index.js";
-import {   errorHandler, notFoundHandler   } from "./middlewares/index.js";
+import { errorHandler, notFoundHandler } from "./middlewares/index.js";
+import socketHandler from "./socket/index.js";
 
 export const app = express();
 export const httpServer = createServer(app);
+
+// Websocket 
+
+const io = new Server(httpServer, {
+    cors: {
+        origin: "*"
+    }
+});
+
+
+socketHandler(io)
 
 // ─── Middleware cơ bản ────────────────────────────────────────────────────────
 app.use(cors());
