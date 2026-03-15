@@ -32,17 +32,32 @@ function socketHandler(io) {
     });
 
 
-    redisSub.pSubscribe("attendance:*", (message, channel) => {
-        
-     })
+    const handleRedisMessage = (message, channel) => {
+        try {
+            const parsedMessage = JSON.parse(message);
+            const { room, event, data } = parsedMessage;
+            
+            if (room) {
+                // Gửi tới 1 room cụ thể (vd: userId hoặc jobId)
+                io.to(room.toString()).emit(event, data);
+            } else {
+                // Broadcast cho tất cả client
+                io.emit(event, data);
+            }
+        } catch (error) {
+             console.error(`Error parsing message from channel ${channel}:`, error);
+        }
+    };
 
-    redisSub.pSubscribe("notification:*", (message, channel) => { })
+    redisSub.pSubscribe("attendance:*", handleRedisMessage)
 
-    redisSub.pSubscribe("user:*", (message, channel) => { })
+    redisSub.pSubscribe("notification:*", handleRedisMessage)
 
-    redisSub.pSubscribe("leave:*", (message, channel) => { })
+    redisSub.pSubscribe("user:*", handleRedisMessage)
 
-    redisSub.pSubscribe("overtime:*", (message, channel) => { })
+    redisSub.pSubscribe("leave:*", handleRedisMessage)
+
+    redisSub.pSubscribe("overtime:*", handleRedisMessage)
 }
 
 export default socketHandler;
