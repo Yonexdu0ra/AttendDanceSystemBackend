@@ -9,6 +9,11 @@ const redisConfig = {
     }
 };
 
+export const client = createClient(redisConfig);
+export const redisPub = client.duplicate();
+export const redisSub = client.duplicate();
+
+
 client.on('error', err => console.log('Redis Client Error', err));
 redisPub.on('error', err => console.log('Redis Pub Error', err));
 redisSub.on('error', err => console.log('Redis Sub Error', err));
