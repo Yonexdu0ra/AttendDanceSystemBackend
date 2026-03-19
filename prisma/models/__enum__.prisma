@@ -1,0 +1,63 @@
+// Role để phân quyền người dùng
+enum Role {
+  EMPLOYEE
+  MANAGER // quản lý chấm công, duyệt đơn xin nghỉ, OT, xem báo cáo phòng ban
+  ADMIN // quản lý tài khoản, quyền hạ, cấu hình hệ thống, xuất báo cáo
+  SUPER_ADMIN
+}
+
+// StatusType để quản lý trạng thái tham gia công việc của người dùng (trạng thái đang chờ duyệt, đã được duyệt, bị từ chối hoặc đã hủy)
+enum StatusType {
+  PENDING
+  APPROVED
+  REJECTED
+  CANCELED
+}
+
+enum LeaveType {
+  SICK
+  VACATION
+  PERSONAL
+  OTHER
+}
+
+enum AttendanceType {
+  // trạng thái chấm công
+  // chờ duyệt
+  PENDING
+  // chấm công thành công
+  PRESENT
+  // vắng mặt
+  ABSENT
+  // trễ giờ
+  LATE
+  // sớm ra
+  EARLY_LEAVE
+  // tự động checkout
+  AUTO_CHECKOUT
+  // quên checkin
+  MISSING_CHECKIN
+  // quên checkout
+  MISSING_CHECKOUT
+}
+
+enum NotificationType {
+  SYSTEM // hệ thống
+  OVERTIME // liên quan OT
+  LEAVE // nghỉ phép
+  APPROVAL // duyệt
+}
+
+// HolidayType để phân loại ngày nghỉ lễ
+enum HolidayType {
+  // nghỉ lễ quốc gia - có lương
+  NATIONAL
+  // nghỉ lễ tôn giáo - có lương
+  RELIGIOUS
+  // nghỉ lễ văn hóa - có lương
+  CULTURAL
+  // nghỉ lễ công ty - có lương
+  COMPANY
+  // nghỉ lễ không có lương
+  OTHER
+}
